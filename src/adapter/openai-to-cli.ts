@@ -17,6 +17,7 @@ const MODEL_MAP: Record<string, ClaudeModel> = {
   // are stripped by extractModel before consulting this map)
   "claude-opus-4": "opus",
   "claude-opus-4-6": "opus",
+  "claude-opus-4-8": "opus",
   "claude-sonnet-4": "sonnet",
   "claude-sonnet-4-5": "sonnet",
   "claude-sonnet-4-6": "sonnet",
