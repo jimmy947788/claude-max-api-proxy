@@ -1,0 +1,21 @@
+[Unit]
+Description=Claude Max API Proxy (OpenAI-compatible wrapper for Claude Code CLI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Change this to your clone path
+WorkingDirectory=%h/Projects/claude-max-api-proxy
+Environment=HOST=0.0.0.0
+# Point CLAUDE_BIN / PATH / ExecStart at your node + claude (see `which node` / `which claude`)
+Environment=CLAUDE_BIN=%h/.nvm/versions/node/v22.22.2/bin/claude
+Environment=PATH=%h/.nvm/versions/node/v22.22.2/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=%h/.nvm/versions/node/v22.22.2/bin/node dist/server/standalone.js
+Restart=on-failure
+RestartSec=3
+StandardOutput=append:%h/.openclaw/logs/claude-max-proxy.log
+StandardError=append:%h/.openclaw/logs/claude-max-proxy.err.log
+
+[Install]
+WantedBy=default.target

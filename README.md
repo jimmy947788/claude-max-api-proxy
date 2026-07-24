@@ -42,7 +42,7 @@ Your App (OpenClaw, Continue.dev, etc.)
 - **OpenClaw integration** — Automatic tool name mapping and system prompt adaptation
 - **Content block handling** — Proper text block separators for multi-block responses
 - **Session management** — Maintains conversation context via session IDs
-- **Auto-start service** — Optional LaunchAgent for macOS
+- **Auto-start service** — Optional systemd user unit (Linux) or LaunchAgent (macOS)
 - **Zero configuration** — Uses existing Claude CLI authentication
 - **Secure by design** — Uses `spawn()` to prevent shell injection
 
@@ -67,7 +67,7 @@ Your App (OpenClaw, Continue.dev, etc.)
 
 ```bash
 # Clone the repository
-git clone https://github.com/wende/claude-max-api-proxy.git
+git clone https://github.com/jimmy947788/claude-max-api-proxy.git
 cd claude-max-api-proxy
 
 # Install dependencies
@@ -190,9 +190,51 @@ response = client.chat.completions.create(
 )
 ```
 
-## Auto-Start on macOS
+## Auto-Start as a Service
 
-The proxy can run as a macOS LaunchAgent on port 3456.
+### Linux (systemd user service)
+
+The proxy can run as a systemd **user** service (no root required) on port 3456.
+
+**Unit file:** [`deploy/claude-max-api-proxy.service`](deploy/claude-max-api-proxy.service)
+
+```bash
+# 1. Build first
+npm run build
+
+# 2. Create log directory
+mkdir -p ~/.openclaw/logs
+
+# 3. Edit the unit: set WorkingDirectory, PATH, CLAUDE_BIN, and ExecStart
+#    to match your clone path and `which node` / `which claude`
+cp deploy/claude-max-api-proxy.service ~/.config/systemd/user/
+# then edit ~/.config/systemd/user/claude-max-api-proxy.service
+
+# 4. Enable + start
+systemctl --user daemon-reload
+systemctl --user enable --now claude-max-api-proxy.service
+
+# Status / restart / stop / logs
+systemctl --user status claude-max-api-proxy.service
+systemctl --user restart claude-max-api-proxy.service
+systemctl --user stop claude-max-api-proxy.service
+journalctl --user -u claude-max-api-proxy.service -f
+# File logs (if configured in the unit):
+#   ~/.openclaw/logs/claude-max-proxy.log
+#   ~/.openclaw/logs/claude-max-proxy.err.log
+```
+
+Optional: keep the user service running after logout:
+
+```bash
+sudo loginctl enable-linger "$USER"
+```
+
+`HOST=0.0.0.0` in the unit binds on all interfaces (useful for LAN clients). Override with `HOST=127.0.0.1` for localhost-only.
+
+### macOS (LaunchAgent)
+
+The proxy can also run as a macOS LaunchAgent on port 3456.
 
 **Plist location:** `~/Library/LaunchAgents/com.openclaw.claude-max-proxy.plist`
 
