@@ -4,6 +4,7 @@
 
 import type { ClaudeCliAssistant, ClaudeCliResult } from "../types/claude-cli.js";
 import type { OpenAIChatResponse, OpenAIChatChunk, OpenAIToolCall } from "../types/openai.js";
+import { normalizeModelName } from "../models.js";
 
 /**
  * Extract text content from Claude CLI assistant message
@@ -73,7 +74,7 @@ export function cliResultToOpenai(
   // Get model from modelUsage or default
   const modelName = result.modelUsage
     ? Object.keys(result.modelUsage)[0]
-    : "claude-sonnet-4";
+    : "claude-sonnet-5";
 
   const message: OpenAIChatResponse["choices"][0]["message"] = {
     role: "assistant",
@@ -103,16 +104,4 @@ export function cliResultToOpenai(
         (result.usage?.input_tokens || 0) + (result.usage?.output_tokens || 0),
     },
   };
-}
-
-/**
- * Normalize Claude model names to a consistent format
- * e.g., "claude-sonnet-4-5-20250929" -> "claude-sonnet-4"
- */
-function normalizeModelName(model: string | undefined): string {
-  if (!model) return "claude-sonnet-4";
-  if (model.includes("opus")) return "claude-opus-4";
-  if (model.includes("sonnet")) return "claude-sonnet-4";
-  if (model.includes("haiku")) return "claude-haiku-4";
-  return model;
 }

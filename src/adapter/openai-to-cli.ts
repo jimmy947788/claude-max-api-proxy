@@ -3,51 +3,15 @@
  */
 
 import type { OpenAIChatRequest, OpenAIContentBlock } from "../types/openai.js";
+import { extractModel, type ClaudeModel } from "../models.js";
 
-export type ClaudeModel = "opus" | "sonnet" | "haiku";
+export type { ClaudeModel };
+export { extractModel };
 
 export interface CliInput {
   prompt: string;
   model: ClaudeModel;
   sessionId?: string;
-}
-
-const MODEL_MAP: Record<string, ClaudeModel> = {
-  // Direct model names (provider prefixes like `claude-code-cli/` and `claude-max/`
-  // are stripped by extractModel before consulting this map)
-  "claude-opus-4": "opus",
-  "claude-opus-4-6": "opus",
-  "claude-opus-4-8": "opus",
-  "claude-sonnet-4": "sonnet",
-  "claude-sonnet-4-5": "sonnet",
-  "claude-sonnet-4-6": "sonnet",
-  "claude-haiku-4": "haiku",
-  "claude-haiku-4-5": "haiku",
-  // Bare aliases
-  "opus": "opus",
-  "sonnet": "sonnet",
-  "haiku": "haiku",
-  "opus-max": "opus",
-  "sonnet-max": "sonnet",
-};
-
-/**
- * Extract Claude model alias from request model string
- */
-export function extractModel(model: string): ClaudeModel {
-  // Try direct lookup
-  if (MODEL_MAP[model]) {
-    return MODEL_MAP[model];
-  }
-
-  // Try stripping provider prefix
-  const stripped = model.replace(/^(?:claude-code-cli|claude-max)\//, "");
-  if (MODEL_MAP[stripped]) {
-    return MODEL_MAP[stripped];
-  }
-
-  // Default to opus (Claude Max subscription)
-  return "opus";
 }
 
 /**

@@ -106,7 +106,7 @@ curl http://localhost:3456/v1/models
 curl -X POST http://localhost:3456/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "claude-sonnet-4",
+    "model": "claude-sonnet-5",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 
@@ -114,7 +114,7 @@ curl -X POST http://localhost:3456/v1/chat/completions \
 curl -N -X POST http://localhost:3456/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "claude-sonnet-4",
+    "model": "claude-sonnet-5",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": true
   }'
@@ -130,13 +130,27 @@ curl -N -X POST http://localhost:3456/v1/chat/completions \
 
 ## Available Models
 
-| Model ID | Alias | CLI Model |
-|----------|-------|-----------|
-| `claude-opus-4` | `opus` | Claude Opus |
-| `claude-sonnet-4` | `sonnet` | Claude Sonnet |
-| `claude-haiku-4` | `haiku` | Claude Haiku |
+| Model ID | CLI `--model` | Notes |
+|----------|---------------|-------|
+| `claude-fable-5` | `claude-fable-5` | Claude Fable 5 (top tier) |
+| `claude-opus-5` | `claude-opus-5` | Claude Opus 5 |
+| `claude-sonnet-5` | `claude-sonnet-5` | Claude Sonnet 5 (default) |
+| `claude-opus-4-8` | `claude-opus-4-8` | Claude Opus 4.8 |
+| `claude-opus-4-7` | `claude-opus-4-7` | Claude Opus 4.7 |
+| `claude-opus-4-6` | `claude-opus-4-6` | Claude Opus 4.6 |
+| `claude-opus-4-5` | `claude-opus-4-5` | Claude Opus 4.5 |
+| `claude-opus-4` | `opus` | Latest Opus alias |
+| `claude-sonnet-4-6` | `claude-sonnet-4-6` | Claude Sonnet 4.6 |
+| `claude-sonnet-4-5` | `claude-sonnet-4-5` | Claude Sonnet 4.5 |
+| `claude-sonnet-4` | `sonnet` | Latest Sonnet alias |
+| `claude-haiku-4-5` | `claude-haiku-4-5` | Claude Haiku 4.5 |
+| `claude-haiku-4` | `haiku` | Latest Haiku alias |
 
-All model IDs also accept a `claude-code-cli/` prefix (e.g., `claude-code-cli/claude-opus-4`). Unknown models default to Opus.
+Bare aliases `fable`, `opus`, `sonnet`, and `haiku` also work. Versioned IDs are passed through to Claude Code as-is; family shortcuts (`claude-opus-4`, etc.) map to CLI aliases so you get the latest of that family.
+
+All model IDs also accept a `claude-code-cli/` or `claude-max/` prefix (e.g., `claude-code-cli/claude-fable-5`). Unknown models default to Opus.
+
+Model definitions live in `src/models.ts` (single source of truth for `/v1/models`, CLI mapping, and the plugin catalog).
 
 ## Configuration with Popular Tools
 
@@ -153,7 +167,7 @@ Add to your Continue config:
   "models": [{
     "title": "Claude (Max)",
     "provider": "openai",
-    "model": "claude-sonnet-4",
+    "model": "claude-sonnet-5",
     "apiBase": "http://localhost:3456/v1",
     "apiKey": "not-needed"
   }]
@@ -171,7 +185,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="claude-sonnet-4",
+    model="claude-sonnet-5",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 ```

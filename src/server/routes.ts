@@ -14,6 +14,7 @@ import {
 } from "../adapter/cli-to-openai.js";
 import type { OpenAIChatRequest, OpenAIToolCall } from "../types/openai.js";
 import type { ClaudeCliAssistant, ClaudeCliResult, ClaudeCliStreamEvent } from "../types/claude-cli.js";
+import { MODEL_IDS } from "../models.js";
 
 /**
  * Handle POST /v1/chat/completions
@@ -103,7 +104,7 @@ async function handleStreamingResponse(
 
   return new Promise<void>((resolve, reject) => {
     let isFirst = true;
-    let lastModel = "claude-sonnet-4";
+    let lastModel = "claude-sonnet-5";
     let isComplete = false;
     let hasEmittedText = false;
     let toolCallIndex = 0;
@@ -385,19 +386,9 @@ async function handleNonStreamingResponse(
  */
 export function handleModels(_req: Request, res: Response): void {
   const now = Math.floor(Date.now() / 1000);
-  const modelIds = [
-    "claude-opus-4",
-    "claude-opus-4-6",
-    "claude-opus-4-8",
-    "claude-sonnet-4",
-    "claude-sonnet-4-5",
-    "claude-sonnet-4-6",
-    "claude-haiku-4",
-    "claude-haiku-4-5",
-  ];
   res.json({
     object: "list",
-    data: modelIds.map((id) => ({
+    data: MODEL_IDS.map((id) => ({
       id,
       object: "model",
       owned_by: "anthropic",
