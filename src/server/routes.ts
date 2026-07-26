@@ -280,20 +280,25 @@ async function handleStreamingResponse(
           );
         }
 
-        if (result.is_error && !hasEmittedText) {
-          res.write(
-            `data: ${JSON.stringify({
-              error: {
-                message: result.result || "Claude CLI returned an error result",
-                type: "server_error",
-                code: null,
-              },
-            })}\n\n`
+        if (result.is_error) {
+          console.error(
+            `[Streaming] CLI error (hasEmittedText=${hasEmittedText}): "${(result.result || "").slice(0, 300)}"`
           );
-          res.write("data: [DONE]\n\n");
-          res.end();
-          resolve();
-          return;
+          if (!hasEmittedText) {
+            res.write(
+              `data: ${JSON.stringify({
+                error: {
+                  message: result.result || "Claude CLI returned an error result",
+                  type: "server_error",
+                  code: null,
+                },
+              })}\n\n`
+            );
+            res.write("data: [DONE]\n\n");
+            res.end();
+            resolve();
+            return;
+          }
         }
 
         // Send final done chunk with finish_reason and usage data
@@ -344,7 +349,7 @@ async function handleStreamingResponse(
     // Start the subprocess
     subprocess.start(cliInput.prompt, {
       model: cliInput.model,
-      sessionId: cliInput.sessionId,
+      isOpenClaw: cliInput.isOpenClaw,
       effort: cliInput.effort,
     }).catch((err) => {
       console.error("[Streaming] Subprocess start error:", err);
@@ -417,7 +422,7 @@ async function handleNonStreamingResponse(
     subprocess
       .start(cliInput.prompt, {
         model: cliInput.model,
-        sessionId: cliInput.sessionId,
+        isOpenClaw: cliInput.isOpenClaw,
         effort: cliInput.effort,
       })
       .catch((error) => {

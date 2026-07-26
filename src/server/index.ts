@@ -23,7 +23,7 @@ function createApp(): Express {
 
   // Middleware: use raw body parser + manual JSON parse for better error diagnostics
   app.use(express.raw({ type: "application/json", limit: "10mb" }));
-  app.use((req: Request, _res: Response, next: NextFunction) => {
+  app.use((req: Request, res: Response, next: NextFunction) => {
     if (req.body && Buffer.isBuffer(req.body) && req.body.length > 0) {
       const raw = req.body.toString("utf8");
       if (process.env.DEBUG) {
@@ -43,7 +43,13 @@ function createApp(): Express {
             url: req.originalUrl,
           });
         }
-        return next(err);
+        return res.status(400).json({
+          error: {
+            message: `Invalid JSON: ${msg}`,
+            type: "invalid_request_error",
+            code: "invalid_json",
+          },
+        });
       }
     }
     next();

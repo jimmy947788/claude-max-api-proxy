@@ -4,8 +4,15 @@
  */
 
 export interface OpenAIContentBlock {
-  type: "text" | "input_text";
-  text: string;
+  type: "text" | "input_text" | "image_url";
+  text?: string;
+  image_url?: { url: string; detail?: string };
+}
+
+export interface OpenAIToolMessage {
+  role: "tool";
+  content: string | OpenAIContentBlock[];
+  tool_call_id: string;
 }
 
 export interface OpenAIChatMessage {
@@ -13,16 +20,18 @@ export interface OpenAIChatMessage {
   content: string | OpenAIContentBlock[];
 }
 
+export type OpenAIAnyMessage = OpenAIChatMessage | OpenAIToolMessage;
+
 export interface OpenAIChatRequest {
   model: string;
-  messages: OpenAIChatMessage[];
+  messages: OpenAIAnyMessage[];
   stream?: boolean;
   temperature?: number;
   max_tokens?: number;
   top_p?: number;
   frequency_penalty?: number;
   presence_penalty?: number;
-  user?: string; // Used for session mapping
+  user?: string;
 }
 
 export interface OpenAIToolCall {

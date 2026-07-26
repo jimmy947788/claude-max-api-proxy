@@ -28,7 +28,7 @@ import type { ClaudeModel } from "../adapter/openai-to-cli.js";
 
 export interface SubprocessOptions {
   model: ClaudeModel;
-  sessionId?: string;
+  isOpenClaw?: boolean;
   cwd?: string;
   timeout?: number;
   effort?: string;
@@ -193,22 +193,19 @@ export class ClaudeSubprocess extends EventEmitter {
    */
   private buildArgs(options: SubprocessOptions): string[] {
     const args = [
-      "--print", // Non-interactive mode
-      "--dangerously-skip-permissions", // Skip permission prompts
+      "--print",
+      "--dangerously-skip-permissions",
       "--output-format",
-      "stream-json", // JSON streaming output
-      "--verbose", // Required for stream-json
-      "--include-partial-messages", // Enable streaming chunks
+      "stream-json",
+      "--verbose",
+      "--include-partial-messages",
       "--model",
-      options.model, // Model alias or full ID (e.g. fable / claude-fable-5)
-      "--no-session-persistence", // Don't save sessions
-      "--append-system-prompt",
-      OPENCLAW_TOOL_MAPPING_PROMPT,
-      // Prompt is passed via stdin (avoids E2BIG on large inputs)
+      options.model,
+      "--no-session-persistence",
     ];
 
-    if (options.sessionId) {
-      args.push("--session-id", options.sessionId);
+    if (options.isOpenClaw) {
+      args.push("--append-system-prompt", OPENCLAW_TOOL_MAPPING_PROMPT);
     }
 
     if (options.effort) {

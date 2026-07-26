@@ -2,7 +2,7 @@
  * Converts OpenAI chat request format to Claude CLI input
  */
 
-import type { OpenAIChatRequest, OpenAIContentBlock } from "../types/openai.js";
+import type { OpenAIChatRequest, OpenAIContentBlock, OpenAIAnyMessage } from "../types/openai.js";
 import { extractModel, supportsEffort, type ClaudeModel } from "../models.js";
 
 export type { ClaudeModel };
@@ -11,16 +11,14 @@ export { extractModel };
 export interface CliInput {
   prompt: string;
   model: ClaudeModel;
-  sessionId?: string;
+  /** True when the request originates from Hermes/OpenClaw (needs tool mapping prompt) */
+  isOpenClaw: boolean;
   /** Claude Code --effort (low|medium|high|xhigh|max) */
   effort?: string;
 }
 
 /**
  * Extract text from a content field that may be a string or array of content blocks.
- * OpenAI API allows content as either:
- *   - A plain string: "Hello"
- *   - An array of content blocks: [{"type": "text", "text": "Hello"}]
  */
 function extractText(content: string | OpenAIContentBlock[]): string {
   if (typeof content === "string") {
@@ -28,8 +26,21 @@ function extractText(content: string | OpenAIContentBlock[]): string {
   }
   if (Array.isArray(content)) {
     return content
-      .filter((block) => block.type === "text" || block.type === "input_text")
-      .map((block) => block.text)
+      .map((block) => {
+        if (block.type === "text" || block.type === "input_text") {
+          return block.text ?? "";
+        }
+        if (block.type === "image_url") {
+          const url = block.image_url?.url ?? "";
+          // data: URLs are base64-encoded — can't pass inline; note the presence
+          if (url.startsWith("data:")) {
+            return "[embedded image]";
+          }
+          return `[Image: ${url}]`;
+        }
+        return "";
+      })
+      .filter(Boolean)
       .join("\n");
   }
   return String(content || "");
@@ -37,10 +48,6 @@ function extractText(content: string | OpenAIContentBlock[]): string {
 
 /**
  * Strip OpenClaw-specific tooling sections from system prompts.
- * These reference tools (exec, process, web_search, etc.) that don't exist
- * in the Claude Code CLI environment, causing the model to get confused.
- * We remove: ## Tooling, ## Tool Call Style, ## OpenClaw CLI Quick Reference,
- * ## OpenClaw Self-Update
  */
 function stripOpenClawTooling(text: string): string {
   const sectionsToStrip = [
@@ -51,7 +58,6 @@ function stripOpenClawTooling(text: string): string {
   ];
   let result = text;
   for (const section of sectionsToStrip) {
-    // Match from section header to the next ## header (or end of string)
     const pattern = new RegExp(
       section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
         "\\n[\\s\\S]*?(?=\\n## |$)",
@@ -59,48 +65,66 @@ function stripOpenClawTooling(text: string): string {
     );
     result = result.replace(pattern, "");
   }
-  // Clean up excessive blank lines left behind
   result = result.replace(/\n{3,}/g, "\n\n");
   return result.trim();
 }
 
+const OPENCLAW_SECTION_HEADERS = [
+  "## Tooling",
+  "## Tool Call Style",
+  "## OpenClaw CLI Quick Reference",
+  "## OpenClaw Self-Update",
+];
+
 /**
- * Convert OpenAI messages array to a single prompt string for Claude CLI
- *
- * Claude Code CLI in --print mode expects a single prompt, not a conversation.
- * We format the messages into a readable format that preserves context.
+ * Detect whether the request comes from Hermes/OpenClaw by checking for
+ * OpenClaw-specific section headers in the system prompt.
  */
-export function messagesToPrompt(
-  messages: OpenAIChatRequest["messages"]
-): string {
+function detectOpenClaw(messages: OpenAIAnyMessage[]): boolean {
+  for (const msg of messages) {
+    if (msg.role === "system") {
+      const text = extractText(msg.content as string | OpenAIContentBlock[]);
+      if (OPENCLAW_SECTION_HEADERS.some((h) => text.includes(h))) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Convert OpenAI messages array to a single prompt string for Claude CLI.
+ */
+export function messagesToPrompt(messages: OpenAIAnyMessage[]): string {
   const parts: string[] = [];
 
   for (const msg of messages) {
-    const text = extractText(msg.content);
+    const text = extractText(msg.content as string | OpenAIContentBlock[]);
     switch (msg.role) {
       case "system":
-        // System messages become context instructions
-        // Strip OpenClaw tooling sections that conflict with Claude Code's native tools
         parts.push(`<system>\n${stripOpenClawTooling(text)}\n</system>\n`);
         break;
 
       case "user":
-        // User messages are the main prompt
         parts.push(text);
         break;
 
       case "assistant":
-        // Previous assistant responses for context
         parts.push(`<previous_response>\n${text}\n</previous_response>\n`);
         break;
+
+      case "tool": {
+        const toolMsg = msg as import("../types/openai.js").OpenAIToolMessage;
+        parts.push(
+          `<tool_result tool_call_id="${toolMsg.tool_call_id}">\n${text}\n</tool_result>\n`
+        );
+        break;
+      }
     }
   }
 
   return parts.join("\n").trim();
 }
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function extractEffort(request: OpenAIChatRequest): string | undefined {
   const body = request as OpenAIChatRequest & {
@@ -122,14 +146,13 @@ function extractEffort(request: OpenAIChatRequest): string | undefined {
  * Convert OpenAI chat request to CLI input format
  */
 export function openaiToCli(request: OpenAIChatRequest): CliInput {
-  const user = request.user?.trim();
   const model = extractModel(request.model);
   const effort = extractEffort(request);
+  const isOpenClaw = detectOpenClaw(request.messages);
   return {
     prompt: messagesToPrompt(request.messages),
     model,
-    // Claude CLI --session-id requires a real UUID; Hermes session ids are not
-    sessionId: user && UUID_RE.test(user) ? user : undefined,
+    isOpenClaw,
     effort: effort && supportsEffort(model, effort) ? effort : undefined,
   };
 }
