@@ -104,11 +104,12 @@ async function handleStreamingResponse(
 
   return new Promise<void>((resolve, reject) => {
     let isFirst = true;
-    let lastModel = "claude-sonnet-5";
+    let lastModel = cliInput.model || "claude-sonnet-5";
     let isComplete = false;
     let hasEmittedText = false;
     let toolCallIndex = 0;
     let inToolBlock = false;
+    let lastAssistantText = "";
 
     // Handle actual client disconnect (response stream closed)
     res.on("close", () => {
@@ -236,14 +237,65 @@ async function handleStreamingResponse(
     //   }
     // });
 
-    // Handle final assistant message (for model name)
+    // Handle final assistant message (for model name + text fallback)
     subprocess.on("assistant", (message: ClaudeCliAssistant) => {
       lastModel = message.message.model;
+      const text = message.message.content
+        .filter((c) => c.type === "text")
+        .map((c) => ("text" in c ? c.text : ""))
+        .join("\n\n");
+      if (text) lastAssistantText = text;
     });
 
     subprocess.on("result", (result: ClaudeCliResult) => {
       isComplete = true;
       if (!res.writableEnded) {
+        // If no text_delta was streamed (common with thinking-heavy Opus 5),
+        // fall back to result.result / last assistant text so clients like
+        // Hermes don't treat the turn as empty.
+        const fallbackText = (result.result || lastAssistantText || "").trim();
+        if (!hasEmittedText && fallbackText) {
+          const chunk = {
+            id: `chatcmpl-${requestId}`,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: lastModel,
+            choices: [{
+              index: 0,
+              delta: {
+                role: isFirst ? "assistant" : undefined,
+                content: fallbackText,
+              },
+              finish_reason: null,
+            }],
+          };
+          res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+          hasEmittedText = true;
+          isFirst = false;
+        } else if (!hasEmittedText) {
+          console.error(
+            `[Streaming] Empty content for model=${cliInput.model} ` +
+              `promptChars=${cliInput.prompt.length} is_error=${result.is_error} ` +
+              `resultChars=${(result.result || "").length}`
+          );
+        }
+
+        if (result.is_error && !hasEmittedText) {
+          res.write(
+            `data: ${JSON.stringify({
+              error: {
+                message: result.result || "Claude CLI returned an error result",
+                type: "server_error",
+                code: null,
+              },
+            })}\n\n`
+          );
+          res.write("data: [DONE]\n\n");
+          res.end();
+          resolve();
+          return;
+        }
+
         // Send final done chunk with finish_reason and usage data
         const doneChunk = createDoneChunk(requestId, lastModel);
         if (result.usage) {
@@ -293,6 +345,7 @@ async function handleStreamingResponse(
     subprocess.start(cliInput.prompt, {
       model: cliInput.model,
       sessionId: cliInput.sessionId,
+      effort: cliInput.effort,
     }).catch((err) => {
       console.error("[Streaming] Subprocess start error:", err);
       reject(err);
@@ -347,7 +400,7 @@ async function handleNonStreamingResponse(
 
     subprocess.on("close", (code: number | null) => {
       if (finalResult) {
-        res.json(cliResultToOpenai(finalResult, requestId));
+        res.json(cliResultToOpenai(finalResult, requestId, undefined, cliInput.model));
       } else if (!res.headersSent) {
         res.status(500).json({
           error: {
@@ -365,6 +418,7 @@ async function handleNonStreamingResponse(
       .start(cliInput.prompt, {
         model: cliInput.model,
         sessionId: cliInput.sessionId,
+        effort: cliInput.effort,
       })
       .catch((error) => {
         res.status(500).json({

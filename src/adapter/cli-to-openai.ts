@@ -64,17 +64,38 @@ export function createDoneChunk(requestId: string, model: string): OpenAIChatChu
 }
 
 /**
+ * Pick the model that actually answered. Claude Code bills side tasks (title
+ * generation, compaction) to Haiku, so `modelUsage` often holds several
+ * entries; the requested model wins, otherwise the heaviest generator does.
+ */
+function resolveModelUsed(
+  result: ClaudeCliResult,
+  requestedModel?: string
+): string | undefined {
+  const entries = Object.entries(result.modelUsage ?? {});
+  if (entries.length === 0) return undefined;
+
+  if (requestedModel) {
+    const match = entries.find(([id]) => id === requestedModel);
+    if (match) return match[0];
+  }
+
+  return entries.reduce((best, entry) =>
+    entry[1].outputTokens > best[1].outputTokens ? entry : best
+  )[0];
+}
+
+/**
  * Convert Claude CLI result to OpenAI non-streaming response
  */
 export function cliResultToOpenai(
   result: ClaudeCliResult,
   requestId: string,
-  toolCalls?: OpenAIToolCall[]
+  toolCalls?: OpenAIToolCall[],
+  requestedModel?: string
 ): OpenAIChatResponse {
-  // Get model from modelUsage or default
-  const modelName = result.modelUsage
-    ? Object.keys(result.modelUsage)[0]
-    : "claude-sonnet-5";
+  const modelName =
+    resolveModelUsed(result, requestedModel) ?? requestedModel ?? "claude-sonnet-5";
 
   const message: OpenAIChatResponse["choices"][0]["message"] = {
     role: "assistant",

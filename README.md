@@ -130,25 +130,27 @@ curl -N -X POST http://localhost:3456/v1/chat/completions \
 
 ## Available Models
 
-| Model ID | CLI `--model` | Notes |
-|----------|---------------|-------|
-| `claude-fable-5` | `claude-fable-5` | Claude Fable 5 (top tier) |
-| `claude-opus-5` | `claude-opus-5` | Claude Opus 5 |
-| `claude-sonnet-5` | `claude-sonnet-5` | Claude Sonnet 5 (default) |
-| `claude-opus-4-8` | `claude-opus-4-8` | Claude Opus 4.8 |
-| `claude-opus-4-7` | `claude-opus-4-7` | Claude Opus 4.7 |
-| `claude-opus-4-6` | `claude-opus-4-6` | Claude Opus 4.6 |
-| `claude-opus-4-5` | `claude-opus-4-5` | Claude Opus 4.5 |
-| `claude-opus-4` | `opus` | Latest Opus alias |
-| `claude-sonnet-4-6` | `claude-sonnet-4-6` | Claude Sonnet 4.6 |
-| `claude-sonnet-4-5` | `claude-sonnet-4-5` | Claude Sonnet 4.5 |
-| `claude-sonnet-4` | `sonnet` | Latest Sonnet alias |
-| `claude-haiku-4-5` | `claude-haiku-4-5` | Claude Haiku 4.5 |
-| `claude-haiku-4` | `haiku` | Latest Haiku alias |
+`GET /v1/models` mirrors Anthropic's own model catalog:
 
-Bare aliases `fable`, `opus`, `sonnet`, and `haiku` also work. Versioned IDs are passed through to Claude Code as-is; family shortcuts (`claude-opus-4`, etc.) map to CLI aliases so you get the latest of that family.
+| Model ID | Context / max output | `--effort` levels |
+|----------|----------------------|-------------------|
+| `claude-opus-5` | 1M / 128K | low, medium, high, xhigh, max |
+| `claude-sonnet-5` | 1M / 128K | low, medium, high, xhigh, max |
+| `claude-fable-5` | 1M / 128K | low, medium, high, xhigh, max |
+| `claude-opus-4-8` | 1M / 128K | low, medium, high, xhigh, max |
+| `claude-opus-4-7` | 1M / 128K | low, medium, high, xhigh, max |
+| `claude-sonnet-4-6` | 1M / 128K | low, medium, high, max |
+| `claude-opus-4-6` | 1M / 128K | low, medium, high, max |
+| `claude-opus-4-5-20251101` | 200K / 64K | low, medium, high |
+| `claude-haiku-4-5-20251001` | 200K / 64K | not supported |
+| `claude-sonnet-4-5-20250929` | 1M / 64K | not supported |
+| `claude-opus-4-1-20250805` | 200K / 32K | not supported |
 
-All model IDs also accept a `claude-code-cli/` or `claude-max/` prefix (e.g., `claude-code-cli/claude-fable-5`). Unknown models default to Opus.
+Undated forms of the dated IDs are accepted too (`claude-opus-4-5`, `claude-haiku-4-5`, `claude-sonnet-4-5`, `claude-opus-4-1`), as are the bare aliases `fable`, `opus`, `sonnet`, and `haiku`. `opus` / `opus-max` / the retired `claude-opus-4` resolve to `claude-opus-5` (Claude Code's own bare `opus` alias still points at 4.8).
+
+All model IDs also accept a `claude-code-cli/` or `claude-max/` prefix (e.g., `claude-code-cli/claude-fable-5`). Unknown models default to Opus 5.
+
+`reasoning_effort` (or `reasoning.effort`) is forwarded to Claude Code as `--effort`, and dropped for models that do not accept it.
 
 Model definitions live in `src/models.ts` (single source of truth for `/v1/models`, CLI mapping, and the plugin catalog).
 
@@ -191,6 +193,17 @@ response = client.chat.completions.create(
 ```
 
 ## Auto-Start as a Service
+
+> **Applying code changes:** the service runs the compiled `dist/` output, not
+> the TypeScript sources. After editing anything under `src/`, rebuild and
+> restart or the change will not take effect:
+>
+> ```bash
+> npm run build
+> systemctl --user restart claude-max-api-proxy.service   # Linux
+> # or on macOS:
+> launchctl kickstart -k gui/$(id -u)/com.openclaw.claude-max-proxy
+> ```
 
 ### Linux (systemd user service)
 

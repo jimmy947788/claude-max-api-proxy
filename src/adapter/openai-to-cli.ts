@@ -3,7 +3,7 @@
  */
 
 import type { OpenAIChatRequest, OpenAIContentBlock } from "../types/openai.js";
-import { extractModel, type ClaudeModel } from "../models.js";
+import { extractModel, supportsEffort, type ClaudeModel } from "../models.js";
 
 export type { ClaudeModel };
 export { extractModel };
@@ -12,6 +12,8 @@ export interface CliInput {
   prompt: string;
   model: ClaudeModel;
   sessionId?: string;
+  /** Claude Code --effort (low|medium|high|xhigh|max) */
+  effort?: string;
 }
 
 /**
@@ -97,13 +99,37 @@ export function messagesToPrompt(
   return parts.join("\n").trim();
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function extractEffort(request: OpenAIChatRequest): string | undefined {
+  const body = request as OpenAIChatRequest & {
+    reasoning_effort?: string;
+    reasoning?: { effort?: string; enabled?: boolean };
+  };
+  const raw =
+    body.reasoning_effort ||
+    (body.reasoning?.enabled === false ? undefined : body.reasoning?.effort);
+  if (!raw) return undefined;
+  const effort = String(raw).trim().toLowerCase();
+  if (["low", "medium", "high", "xhigh", "max"].includes(effort)) {
+    return effort;
+  }
+  return undefined;
+}
+
 /**
  * Convert OpenAI chat request to CLI input format
  */
 export function openaiToCli(request: OpenAIChatRequest): CliInput {
+  const user = request.user?.trim();
+  const model = extractModel(request.model);
+  const effort = extractEffort(request);
   return {
     prompt: messagesToPrompt(request.messages),
-    model: extractModel(request.model),
-    sessionId: request.user, // Use OpenAI's user field for session mapping
+    model,
+    // Claude CLI --session-id requires a real UUID; Hermes session ids are not
+    sessionId: user && UUID_RE.test(user) ? user : undefined,
+    effort: effort && supportsEffort(model, effort) ? effort : undefined,
   };
 }

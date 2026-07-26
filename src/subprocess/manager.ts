@@ -31,6 +31,7 @@ export interface SubprocessOptions {
   sessionId?: string;
   cwd?: string;
   timeout?: number;
+  effort?: string;
 }
 
 export interface SubprocessEvents {
@@ -208,6 +209,10 @@ export class ClaudeSubprocess extends EventEmitter {
 
     if (options.sessionId) {
       args.push("--session-id", options.sessionId);
+    }
+
+    if (options.effort) {
+      args.push("--effort", options.effort);
     }
 
     return args;

@@ -56,19 +56,17 @@ describe("health and models", () => {
 
     const ids = body.data.map((m: any) => m.id);
     for (const expected of [
-      "claude-fable-5",
       "claude-opus-5",
       "claude-sonnet-5",
+      "claude-fable-5",
       "claude-opus-4-8",
       "claude-opus-4-7",
-      "claude-opus-4-6",
-      "claude-opus-4-5",
-      "claude-opus-4",
       "claude-sonnet-4-6",
-      "claude-sonnet-4-5",
-      "claude-sonnet-4",
-      "claude-haiku-4-5",
-      "claude-haiku-4",
+      "claude-opus-4-6",
+      "claude-opus-4-5-20251101",
+      "claude-haiku-4-5-20251001",
+      "claude-sonnet-4-5-20250929",
+      "claude-opus-4-1-20250805",
     ]) {
       assert.ok(ids.includes(expected), `missing model ${expected}`);
     }
@@ -106,7 +104,7 @@ describe("non-streaming completion", { timeout: TEST_TIMEOUT }, () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-haiku-4",
+        model: "claude-haiku-4-5",
         stream: false,
         messages: [
           {
@@ -175,7 +173,7 @@ describe("streaming completion", { timeout: TEST_TIMEOUT }, () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-haiku-4",
+        model: "claude-haiku-4-5",
         stream: true,
         messages: [
           {
