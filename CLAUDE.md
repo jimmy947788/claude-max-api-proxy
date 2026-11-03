@@ -57,5 +57,8 @@ launchctl list com.openclaw.claude-max-proxy
 - `src/adapter/openai-to-cli.ts` - Converts OpenAI requests to CLI input
 - `src/adapter/cli-to-openai.ts` - Converts CLI output to OpenAI responses
 - `src/subprocess/manager.ts` - Spawns and manages Claude CLI subprocesses
+- `src/dictionary/replacer.ts` - Single-pass and streaming keyword replacement
+- `src/dictionary/dictionary.ts` - Dictionary parsing plus the redact/restore API
+- `src/dictionary/loader.ts` - Dictionary file loading with reload-on-change
 - `src/server/routes.ts` - Express route handlers (streaming + non-streaming)
 - `src/server/standalone.js` - Server entry point
