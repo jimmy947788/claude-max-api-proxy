@@ -11,6 +11,8 @@ Environment=HOST=0.0.0.0
 # Point CLAUDE_BIN / PATH / ExecStart at your node + claude (see `which node` / `which claude`)
 Environment=CLAUDE_BIN=%h/.nvm/versions/node/v22.22.2/bin/claude
 Environment=PATH=%h/.nvm/versions/node/v22.22.2/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Optional keyword dictionary (defaults to %h/.claude-max-proxy/dictionary.json)
+#Environment=KEYWORD_DICTIONARY_FILE=%h/.claude-max-proxy/dictionary.json
 ExecStart=%h/.nvm/versions/node/v22.22.2/bin/node dist/server/standalone.js
 Restart=on-failure
 RestartSec=3

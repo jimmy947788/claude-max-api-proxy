@@ -40,6 +40,7 @@ Your App (OpenClaw, Continue.dev, etc.)
 - **Streaming support** — Real-time token streaming via Server-Sent Events
 - **Multiple models** — Claude Opus, Sonnet, and Haiku with flexible model aliases
 - **OpenClaw integration** — Automatic tool name mapping and system prompt adaptation
+- **Keyword dictionary** — Swap private keywords for placeholders before the prompt leaves your machine, and swap them back in the reply
 - **Content block handling** — Proper text block separators for multi-block responses
 - **Session management** — Maintains conversation context via session IDs
 - **Auto-start service** — Optional systemd user unit (Linux) or LaunchAgent (macOS)
@@ -153,6 +154,84 @@ All model IDs also accept a `claude-code-cli/` or `claude-max/` prefix (e.g., `c
 `reasoning_effort` (or `reasoning.effort`) is forwarded to Claude Code as `--effort`, and dropped for models that do not accept it.
 
 Model definitions live in `src/models.ts` (single source of truth for `/v1/models`, CLI mapping, and the plugin catalog).
+
+## Keyword Dictionary (redact & restore)
+
+Some prompts contain names, paths, or identifiers you would rather not send to
+Anthropic. The proxy can rewrite them into placeholders on the way out and turn
+the placeholders back into the originals on the way in, so the client never sees
+the substitution.
+
+```
+Client ──"Mail alice@acme.test"──▶ Proxy ──"Mail __EMAIL_1__"──▶ Claude
+Client ◀──"Mailed alice@acme.test"── Proxy ◀──"Mailed __EMAIL_1__"── Claude
+```
+
+### Enabling it
+
+Create the dictionary file — by default `~/.claude-max-proxy/dictionary.json`:
+
+```json
+{
+  "entries": [
+    { "from": "Acme Corporation", "to": "__ORG_1__" },
+    { "from": "alice@acme.test", "to": "__EMAIL_1__", "caseInsensitive": true },
+    { "from": "/Users/alice/work/acme-internal", "to": "__REPO_PATH__" }
+  ]
+}
+```
+
+A plain keyword-to-placeholder map works too:
+
+```json
+{
+  "Acme Corporation": "__ORG_1__",
+  "alice@acme.test": "__EMAIL_1__"
+}
+```
+
+There is nothing else to turn on: with no file present, the proxy behaves exactly
+as before. The file is re-read whenever it changes, so edits take effect on the
+next request without a restart. A full example lives in
+[`docs/dictionary.example.json`](docs/dictionary.example.json).
+
+### Options
+
+| Key | Scope | Default | Meaning |
+|-----|-------|---------|---------|
+| `from` | entry | — | The keyword to look for (matched literally, not as a regex) |
+| `to` | entry | — | The placeholder sent to Claude in its place |
+| `caseInsensitive` | entry / file | `false` | Match the keyword regardless of case |
+| `wholeWord` | entry / file | `false` | Only match when not surrounded by letters, digits, or `_` |
+| `enabled` | file | `true` | Set to `false` to keep the file but turn substitution off |
+| `restoreResponses` | file | `true` | Set to `false` to redact prompts without mapping replies back |
+
+`caseInsensitive` and `wholeWord` set at the top level act as defaults that each
+entry can override.
+
+### Environment variables
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `KEYWORD_DICTIONARY_FILE` | `~/.claude-max-proxy/dictionary.json` | Path to the dictionary |
+| `KEYWORD_DICTIONARY_DISABLED` | unset | Set to `1` to bypass the dictionary entirely |
+
+`GET /health` reports whether a dictionary is loaded and how many entries it
+holds. It never returns the keywords themselves.
+
+### Behaviour notes
+
+- Keywords are matched in a single pass, longest first, so `Acme Corporation`
+  wins over `Acme` and a placeholder is never re-matched by another entry.
+- Restoration also works in streaming mode: a placeholder split across several
+  SSE deltas is buffered until it can be resolved.
+- Placeholders are matched back exactly (case-sensitive). Pick distinctive ones
+  such as `__ORG_1__` so ordinary model output cannot collide with them.
+- The model does not know what a placeholder stands for. It will reason about
+  `__ORG_1__` as an opaque token, which is the point — but it also means the
+  model cannot use any knowledge tied to the hidden keyword.
+- Entries with a duplicate `from`, a duplicate `to`, or `from` equal to `to` are
+  skipped with a warning, because they could not be restored unambiguously.
 
 ## Configuration with Popular Tools
 
@@ -277,6 +356,10 @@ src/
 │   └── cli-to-openai.ts   # Convert CLI responses → OpenAI format
 ├── subprocess/
 │   └── manager.ts         # Claude CLI subprocess + OpenClaw tool mapping
+├── dictionary/
+│   ├── replacer.ts        # Single-pass + streaming keyword replacement
+│   ├── dictionary.ts      # Dictionary parsing and redact/restore API
+│   └── loader.ts          # Dictionary file loading with reload-on-change
 ├── session/
 │   └── manager.ts         # Session ID mapping
 ├── server/
@@ -292,6 +375,7 @@ src/
 - No API keys stored or transmitted by this proxy
 - All authentication handled by Claude CLI's secure keychain storage
 - Prompts passed as CLI arguments, not through shell interpretation
+- Optional keyword dictionary keeps chosen terms out of outbound prompts
 
 ## Troubleshooting
 
@@ -320,6 +404,12 @@ which claude
 ## Contributing
 
 Contributions welcome! Please submit PRs with tests.
+
+```bash
+npm run build
+npm run test:unit   # fast, offline: dictionary + HTTP layer against a stub CLI
+npm run test:e2e    # hits the real Claude CLI and spends Max subscription tokens
+```
 
 ## License
 

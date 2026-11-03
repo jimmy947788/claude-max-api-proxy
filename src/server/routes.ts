@@ -15,6 +15,8 @@ import {
 import type { OpenAIChatRequest, OpenAIToolCall } from "../types/openai.js";
 import type { ClaudeCliAssistant, ClaudeCliResult, ClaudeCliStreamEvent } from "../types/claude-cli.js";
 import { MODEL_IDS } from "../models.js";
+import type { Dictionary } from "../dictionary/dictionary.js";
+import { describeDictionary, getDictionary } from "../dictionary/loader.js";
 
 /**
  * Handle POST /v1/chat/completions
@@ -42,14 +44,17 @@ export async function handleChatCompletions(
       return;
     }
 
-    // Convert to CLI input format
-    const cliInput = openaiToCli(body);
+    // Convert to CLI input format, swapping dictionary keywords for placeholders
+    // before anything leaves this process
+    const dictionary = await getDictionary();
+    const converted = openaiToCli(body);
+    const cliInput = { ...converted, prompt: dictionary.redact(converted.prompt) };
     const subprocess = new ClaudeSubprocess();
 
     if (stream) {
-      await handleStreamingResponse(req, res, subprocess, cliInput, requestId);
+      await handleStreamingResponse(req, res, subprocess, cliInput, requestId, dictionary);
     } else {
-      await handleNonStreamingResponse(res, subprocess, cliInput, requestId);
+      await handleNonStreamingResponse(res, subprocess, cliInput, requestId, dictionary);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -87,7 +92,8 @@ async function handleStreamingResponse(
   res: Response,
   subprocess: ClaudeSubprocess,
   cliInput: ReturnType<typeof openaiToCli>,
-  requestId: string
+  requestId: string,
+  dictionary: Dictionary
 ): Promise<void> {
   // Set SSE headers
   res.setHeader("Content-Type", "text/event-stream");
@@ -111,6 +117,31 @@ async function handleStreamingResponse(
     let inToolBlock = false;
     let lastAssistantText = "";
 
+    // Placeholders can straddle delta boundaries, so restoration runs through a
+    // buffering transformer rather than per-chunk string replacement
+    const restoreStream = dictionary.createRestoreStream();
+
+    const writeDelta = (text: string, countsAsContent: boolean): void => {
+      if (!text || res.writableEnded) return;
+      const chunk = {
+        id: `chatcmpl-${requestId}`,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model: lastModel,
+        choices: [{
+          index: 0,
+          delta: {
+            role: isFirst ? "assistant" : undefined,
+            content: text,
+          },
+          finish_reason: null,
+        }],
+      };
+      res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+      isFirst = false;
+      if (countsAsContent) hasEmittedText = true;
+    };
+
     // Handle actual client disconnect (response stream closed)
     res.on("close", () => {
       if (!isComplete) {
@@ -123,21 +154,12 @@ async function handleStreamingResponse(
     // When a new text content block starts after we've already emitted text,
     // insert a separator so text from different blocks doesn't run together
     subprocess.on("text_block_start", () => {
-      if (hasEmittedText && !res.writableEnded) {
-        const sepChunk = {
-          id: `chatcmpl-${requestId}`,
-          object: "chat.completion.chunk",
-          created: Math.floor(Date.now() / 1000),
-          model: lastModel,
-          choices: [{
-            index: 0,
-            delta: {
-              content: "\n\n",
-            },
-            finish_reason: null,
-          }],
-        };
-        res.write(`data: ${JSON.stringify(sepChunk)}\n\n`);
+      if (res.writableEnded) return;
+      // Release anything the restorer is still holding so it cannot land after
+      // the separator and get attributed to the next block
+      writeDelta(restoreStream.flush(), true);
+      if (hasEmittedText) {
+        writeDelta("\n\n", false);
       }
     });
 
@@ -146,23 +168,7 @@ async function handleStreamingResponse(
       const delta = event.event.delta;
       const text = (delta?.type === "text_delta" && delta.text) || "";
       if (text && !res.writableEnded) {
-        const chunk = {
-          id: `chatcmpl-${requestId}`,
-          object: "chat.completion.chunk",
-          created: Math.floor(Date.now() / 1000),
-          model: lastModel,
-          choices: [{
-            index: 0,
-            delta: {
-              role: isFirst ? "assistant" : undefined,
-              content: text,
-            },
-            finish_reason: null,
-          }],
-        };
-        res.write(`data: ${JSON.stringify(chunk)}\n\n`);
-        isFirst = false;
-        hasEmittedText = true;
+        writeDelta(restoreStream.push(text), true);
       }
     });
 
@@ -250,28 +256,18 @@ async function handleStreamingResponse(
     subprocess.on("result", (result: ClaudeCliResult) => {
       isComplete = true;
       if (!res.writableEnded) {
+        // Emit the restorer's trailing buffer before deciding whether the turn
+        // produced any content
+        writeDelta(restoreStream.flush(), true);
+
         // If no text_delta was streamed (common with thinking-heavy Opus 5),
         // fall back to result.result / last assistant text so clients like
         // Hermes don't treat the turn as empty.
-        const fallbackText = (result.result || lastAssistantText || "").trim();
+        const fallbackText = dictionary
+          .restore(result.result || lastAssistantText || "")
+          .trim();
         if (!hasEmittedText && fallbackText) {
-          const chunk = {
-            id: `chatcmpl-${requestId}`,
-            object: "chat.completion.chunk",
-            created: Math.floor(Date.now() / 1000),
-            model: lastModel,
-            choices: [{
-              index: 0,
-              delta: {
-                role: isFirst ? "assistant" : undefined,
-                content: fallbackText,
-              },
-              finish_reason: null,
-            }],
-          };
-          res.write(`data: ${JSON.stringify(chunk)}\n\n`);
-          hasEmittedText = true;
-          isFirst = false;
+          writeDelta(fallbackText, true);
         } else if (!hasEmittedText) {
           console.error(
             `[Streaming] Empty content for model=${cliInput.model} ` +
@@ -288,7 +284,9 @@ async function handleStreamingResponse(
             res.write(
               `data: ${JSON.stringify({
                 error: {
-                  message: result.result || "Claude CLI returned an error result",
+                  message:
+                    dictionary.restore(result.result || "") ||
+                    "Claude CLI returned an error result",
                   type: "server_error",
                   code: null,
                 },
@@ -365,7 +363,8 @@ async function handleNonStreamingResponse(
   res: Response,
   subprocess: ClaudeSubprocess,
   cliInput: ReturnType<typeof openaiToCli>,
-  requestId: string
+  requestId: string,
+  dictionary: Dictionary
 ): Promise<void> {
   return new Promise((resolve) => {
     let finalResult: ClaudeCliResult | null = null;
@@ -405,7 +404,10 @@ async function handleNonStreamingResponse(
 
     subprocess.on("close", (code: number | null) => {
       if (finalResult) {
-        res.json(cliResultToOpenai(finalResult, requestId, undefined, cliInput.model));
+        const restored: ClaudeCliResult = finalResult.result
+          ? { ...finalResult, result: dictionary.restore(finalResult.result) }
+          : finalResult;
+        res.json(cliResultToOpenai(restored, requestId, undefined, cliInput.model));
       } else if (!res.headersSent) {
         res.status(500).json({
           error: {
@@ -461,10 +463,13 @@ export function handleModels(_req: Request, res: Response): void {
  *
  * Health check endpoint
  */
-export function handleHealth(_req: Request, res: Response): void {
+export async function handleHealth(_req: Request, res: Response): Promise<void> {
+  // Counts and path only — the keywords themselves are what we are hiding
+  const dictionary = await describeDictionary().catch(() => null);
   res.json({
     status: "ok",
     provider: "claude-code-cli",
     timestamp: new Date().toISOString(),
+    dictionary,
   });
 }

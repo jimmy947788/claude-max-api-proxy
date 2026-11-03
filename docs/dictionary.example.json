@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "restoreResponses": true,
+  "caseInsensitive": false,
+  "wholeWord": false,
+  "entries": [
+    { "from": "Acme Corporation", "to": "__ORG_1__" },
+    { "from": "Acme", "to": "__ORG_2__", "wholeWord": true },
+    { "from": "alice@acme.test", "to": "__EMAIL_1__", "caseInsensitive": true },
+    { "from": "/Users/alice/work/acme-internal", "to": "__REPO_PATH__" },
+    { "from": "AKIAIOSFODNN7EXAMPLE", "to": "__AWS_KEY_1__" }
+  ]
+}

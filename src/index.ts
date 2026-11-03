@@ -219,3 +219,15 @@ export default claudeCodeCliPlugin;
 // Also export server utilities for standalone use
 export { startServer, stopServer, getServer } from "./server/index.js";
 export { ClaudeSubprocess, verifyClaude, verifyAuth } from "./subprocess/manager.js";
+export {
+  createDictionary,
+  parseDictionary,
+  type Dictionary,
+  type DictionaryEntry,
+} from "./dictionary/dictionary.js";
+export {
+  describeDictionary,
+  getDictionary,
+  resetDictionaryCache,
+  resolveDictionaryPath,
+} from "./dictionary/loader.js";
