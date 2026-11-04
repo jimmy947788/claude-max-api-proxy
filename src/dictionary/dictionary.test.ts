@@ -95,12 +95,37 @@ describe("restore", () => {
     assert.equal(dict.restore("__ORG_2__"), "__ORG_2__");
   });
 
-  it("restores placeholders case-sensitively", () => {
+  it("restores symbolic placeholders case-sensitively", () => {
     const dict = createDictionary([
       { from: "Acme", to: "__ORG__", caseInsensitive: true },
     ]);
     assert.equal(dict.restore("__org__"), "__org__");
     assert.equal(dict.restore("__ORG__"), "Acme");
+  });
+
+  it("restores every case of a plain-word placeholder", () => {
+    const dict = createDictionary([
+      { from: "bank", to: "blue", caseInsensitive: true },
+      { from: "production", to: "development", caseInsensitive: true },
+    ]);
+    assert.equal(dict.restore("blue"), "bank");
+    assert.equal(dict.restore("Blue"), "Bank");
+    assert.equal(dict.restore("BLUE"), "BANK");
+    assert.equal(dict.restore("dblue"), "dbank");
+    assert.equal(dict.restore("dBlue"), "dBank");
+    assert.equal(dict.restore("DBLUE"), "DBANK");
+    assert.equal(dict.restore("com.dblue.mobile"), "com.dbank.mobile");
+    assert.equal(dict.restore("DEVELOPMENT"), "PRODUCTION");
+    assert.equal(dict.restore("Development"), "Production");
+  });
+
+  it("keeps the matched case when redacting a plain word", () => {
+    const dict = createDictionary([{ from: "bank", to: "blue", caseInsensitive: true }]);
+    assert.equal(dict.redact("bank"), "blue");
+    assert.equal(dict.redact("Bank"), "Blue");
+    assert.equal(dict.redact("DBANK"), "DBLUE");
+    assert.equal(dict.redact("dBank"), "dBlue");
+    assert.equal(dict.restore(dict.redact("DBANK dBank bank")), "DBANK dBank bank");
   });
 });
 
@@ -114,6 +139,19 @@ describe("streaming restore", () => {
     for (const char of text) out += stream.push(char);
     return out + stream.flush();
   }
+
+  it("restores a cased word placeholder split across chunks", () => {
+    const dict = createDictionary([{ from: "bank", to: "blue", caseInsensitive: true }]);
+    const stream = dict.createRestoreStream();
+    assert.equal(stream.push("see DB"), "see D");
+    assert.equal(stream.push("LUE"), "BANK");
+    assert.equal(stream.flush(), "");
+
+    const titled = dict.createRestoreStream();
+    assert.equal(titled.push("dBl"), "d");
+    assert.equal(titled.push("ue"), "Bank");
+    assert.equal(titled.flush(), "");
+  });
 
   it("restores a placeholder split across chunks", () => {
     const dict = createDictionary(ENTRIES);

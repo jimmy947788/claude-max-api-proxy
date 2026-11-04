@@ -14,6 +14,11 @@ export interface ReplacementPair {
   replace: string;
   caseInsensitive?: boolean;
   wholeWord?: boolean;
+  /**
+   * Copy the case of the matched text onto `replace`.
+   * Used for plain-word placeholders (`blue` / `BLUE` / `dBlue`).
+   */
+  preserveCase?: boolean;
 }
 
 export interface SplitResult {
@@ -63,6 +68,45 @@ function literalPattern(term: string, caseInsensitive: boolean): string {
       const upper = char.toUpperCase();
       if (lower === upper) return escapeRegex(char);
       return `[${escapeRegex(lower)}${escapeRegex(upper)}]`;
+    })
+    .join("");
+}
+
+/** True when every character is a letter or digit, so case can be transferred. */
+export function isCaseWord(text: string): boolean {
+  return /^[\p{L}\p{N}]+$/u.test(text);
+}
+
+/**
+ * Replay the case pattern of `matched` onto `replacement`.
+ * `BLUE` → all caps, `blue` → all lower, `Blue` → leading capital.
+ * Mixed patterns follow the matched characters and reuse the last one
+ * when the replacement is longer.
+ */
+export function applyMatchedCase(matched: string, replacement: string): string {
+  if (matched === matched.toUpperCase()) return replacement.toUpperCase();
+  if (matched === matched.toLowerCase()) return replacement.toLowerCase();
+
+  const matchedChars = Array.from(matched);
+  const head = matchedChars[0] ?? "";
+  const tail = matchedChars.slice(1).join("");
+  if (head === head.toUpperCase() && tail === tail.toLowerCase()) {
+    const replacementChars = Array.from(replacement);
+    const first = replacementChars[0] ?? "";
+    return first.toUpperCase() + replacementChars.slice(1).join("").toLowerCase();
+  }
+
+  const sample = matchedChars;
+  return Array.from(replacement)
+    .map((char, index) => {
+      const source = sample[index] ?? sample[sample.length - 1] ?? "";
+      if (source !== source.toLowerCase() && source === source.toUpperCase()) {
+        return char.toUpperCase();
+      }
+      if (source !== source.toUpperCase() && source === source.toLowerCase()) {
+        return char.toLowerCase();
+      }
+      return char;
     })
     .join("");
 }
@@ -123,7 +167,9 @@ export function buildReplacer(pairs: ReplacementPair[]): Replacer {
   /** Exactly one capture group is set per match; its position names the entry. */
   function replacementFor(matched: string, groups: (string | undefined)[]): string {
     const index = groups.findIndex((group) => group !== undefined);
-    return index === -1 ? matched : ordered[index].replace;
+    if (index === -1) return matched;
+    const pair = ordered[index];
+    return pair.preserveCase === true ? applyMatchedCase(matched, pair.replace) : pair.replace;
   }
 
   function findMatches(text: string): Match[] {

@@ -7,7 +7,8 @@
 
 import { spawn, ChildProcess } from "child_process";
 import { EventEmitter } from "events";
-import fs from "fs/promises";
+import fs from "fs";
+import os from "os";
 import path from "path";
 import type {
   ClaudeCliMessage,
@@ -44,6 +45,33 @@ export interface SubprocessEvents {
 }
 
 const DEFAULT_TIMEOUT = 900000; // 15 minutes
+
+function cliLoggingEnabled(): boolean {
+  const raw = process.env.CLAUDE_CLI_LOG?.trim().toLowerCase();
+  return raw !== "0" && raw !== "false" && raw !== "off";
+}
+
+function expandHome(filePath: string): string {
+  return filePath.startsWith("~") ? path.join(os.homedir(), filePath.slice(1)) : filePath;
+}
+
+/** Claude CLI's own debug log. Override with CLAUDE_CLI_DEBUG_FILE. */
+function cliDebugFilePath(): string {
+  const configured = process.env.CLAUDE_CLI_DEBUG_FILE?.trim();
+  if (configured) return path.resolve(expandHome(configured));
+  return path.join(os.homedir(), ".openclaw", "logs", "claude-cli-debug.log");
+}
+
+/** One file per CLI run, so a fallback retry cannot overwrite the prompt. */
+function cliTranscriptPath(): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return path.join(os.homedir(), ".openclaw", "logs", `claude-cli-${stamp}.log`);
+}
+
+function appendCliLog(file: string, text: string): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, text);
+}
 
 /**
  * System prompt appended to Claude CLI to map OpenClaw tool names to Claude Code equivalents.
@@ -111,6 +139,22 @@ export class ClaudeSubprocess extends EventEmitter {
   async start(prompt: string, options: SubprocessOptions): Promise<void> {
     const args = this.buildArgs(options);
     const timeout = options.timeout || DEFAULT_TIMEOUT;
+    const logging = cliLoggingEnabled();
+    const transcriptFile = cliTranscriptPath();
+
+    if (logging) {
+      try {
+        fs.mkdirSync(path.dirname(cliDebugFilePath()), { recursive: true });
+        appendCliLog(
+          transcriptFile,
+          `===== ${new Date().toISOString()} model=${options.model} =====\n` +
+            `--- prompt ---\n${prompt}\n--- end prompt ---\n`
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`[Subprocess] CLI log open failed: ${message}`);
+      }
+    }
 
     return new Promise((resolve, reject) => {
       try {
@@ -135,6 +179,9 @@ export class ClaudeSubprocess extends EventEmitter {
         // Handle spawn errors (e.g., claude not found)
         this.process.on("error", (err) => {
           this.clearTimeout();
+          if (logging) {
+            appendCliLog(transcriptFile, `\n--- spawn error: ${err.message} ---\n`);
+          }
           if (err.message.includes("ENOENT")) {
             reject(
               new Error(
@@ -157,6 +204,7 @@ export class ClaudeSubprocess extends EventEmitter {
         // Parse JSON stream from stdout
         this.process.stdout?.on("data", (chunk: Buffer) => {
           const data = chunk.toString();
+          if (logging) appendCliLog(transcriptFile, data);
           if (process.env.DEBUG_SUBPROCESS) {
             console.error(`[Subprocess] Received ${data.length} bytes of stdout`);
           }
@@ -168,6 +216,7 @@ export class ClaudeSubprocess extends EventEmitter {
         this.process.stderr?.on("data", (chunk: Buffer) => {
           const errorText = chunk.toString().trim();
           if (errorText) {
+            if (logging) appendCliLog(transcriptFile, `\n--- stderr ---\n${chunk.toString()}\n`);
             // Don't emit as error unless it's actually an error
             // Claude CLI may write debug info to stderr
             if (process.env.DEBUG_SUBPROCESS) {
@@ -178,6 +227,7 @@ export class ClaudeSubprocess extends EventEmitter {
 
         // Handle process close
         this.process.on("close", (code) => {
+          if (logging) appendCliLog(transcriptFile, `\n--- exit ${code} ---\n`);
           if (process.env.DEBUG_SUBPROCESS) {
             console.error(`[Subprocess] Process closed with code: ${code}`);
           }
@@ -213,6 +263,10 @@ export class ClaudeSubprocess extends EventEmitter {
       options.model,
       "--no-session-persistence",
     ];
+
+    if (cliLoggingEnabled()) {
+      args.push("--debug-file", cliDebugFilePath());
+    }
 
     // Always inject security research authorization into the real API system prompt.
     // Must come before OpenClaw tool mapping so the authorization prefix appears first.

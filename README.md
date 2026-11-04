@@ -225,8 +225,10 @@ holds. It never returns the keywords themselves.
   wins over `Acme` and a placeholder is never re-matched by another entry.
 - Restoration also works in streaming mode: a placeholder split across several
   SSE deltas is buffered until it can be resolved.
-- Placeholders are matched back exactly (case-sensitive). Pick distinctive ones
-  such as `__ORG_1__` so ordinary model output cannot collide with them.
+- Symbolic placeholders such as `__ORG_1__` are matched back exactly. A
+  case-insensitive entry whose keyword and placeholder are both plain words
+  follows the case of the match: `DBANK` is sent as `DBLUE`, and `DBLUE` /
+  `dBlue` / `dblue` come back as `DBANK` / `dBank` / `dbank`.
 - The model does not know what a placeholder stands for. It will reason about
   `__ORG_1__` as an opaque token, which is the point — but it also means the
   model cannot use any knowledge tied to the hidden keyword.

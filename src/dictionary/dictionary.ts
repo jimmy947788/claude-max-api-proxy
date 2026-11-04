@@ -9,6 +9,7 @@
 import {
   buildReplacer,
   createStreamTransformer,
+  isCaseWord,
   type ReplacementPair,
   type Replacer,
   type StreamTransformer,
@@ -190,6 +191,11 @@ export function parseDictionary(parsed: unknown): ParsedDictionary {
   };
 }
 
+/** Plain-word entries follow the case of each match. Symbolic placeholders do not. */
+function preservesMatchedCase(entry: DictionaryEntry): boolean {
+  return entry.caseInsensitive === true && isCaseWord(entry.from) && isCaseWord(entry.to);
+}
+
 export function createDictionary(
   entries: DictionaryEntry[],
   options: { enabled?: boolean; restoreResponses?: boolean } = {}
@@ -206,13 +212,20 @@ export function createDictionary(
     replace: entry.to,
     caseInsensitive: entry.caseInsensitive,
     wholeWord: entry.wholeWord,
+    preserveCase: preservesMatchedCase(entry),
   }));
 
-  // Placeholders are emitted by us verbatim, so they are matched exactly:
-  // no case folding and no word boundaries on the way back.
+  // Symbolic placeholders (`__ORG_1__`) are matched exactly: we emit them
+  // verbatim. A case-insensitive plain-word placeholder (`blue`) is matched in
+  // any case, and the original keyword takes on that case (`DBLUE` → `DBANK`).
   const restorePairs: ReplacementPair[] = entries
     .filter((entry) => entry.to.length > 0)
-    .map((entry) => ({ search: entry.to, replace: entry.from }));
+    .map((entry) => ({
+      search: entry.to,
+      replace: entry.from,
+      caseInsensitive: preservesMatchedCase(entry),
+      preserveCase: preservesMatchedCase(entry),
+    }));
 
   const redactor: Replacer = buildReplacer(redactPairs);
   const restorer: Replacer = restoreResponses
